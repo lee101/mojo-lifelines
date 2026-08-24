@@ -12,7 +12,7 @@ I = ctypes.c_int64
 F = ctypes.c_double
 
 _SIGNATURES = {
-    "ml_event_table": ([I] * 15, I),
+    "ml_event_table": ([I] * 16, I),
     "ml_weibull_fit": ([I, I, I, I, I, I, F], I),
     "ml_cox_efron": ([I] * 12, F),
     "ml_predict_log_hazard": ([I, I, I, I, I], None),

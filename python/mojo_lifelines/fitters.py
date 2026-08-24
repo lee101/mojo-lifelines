@@ -43,24 +43,43 @@ class _EventScan:
 
 
 def _event_scan(durations, events, weights) -> _EventScan:
-    if np.min(durations) > 0:
-        durations = np.r_[0.0, durations]
-        events = np.r_[0.0, events]
-        weights = np.r_[0.0, weights]
-    order = np.argsort(durations, kind="stable")
-    durations = np.ascontiguousarray(durations[order])
-    events = np.ascontiguousarray(events[order])
-    weights = np.ascontiguousarray(weights[order])
+    aggregated = 0
+    sample_step = max(1, durations.size // 64)
+    sample = durations[::sample_step]
+    dense_limit = min(1_000_000, durations.size * 2)
+    if (
+        durations.size >= 4096
+        and np.equal(sample, np.floor(sample)).all()
+        and np.max(durations) <= dense_limit
+    ):
+        bins = durations.astype(np.intp)
+        if np.equal(durations, bins).all():
+            removed_bins = np.bincount(bins, weights=weights)
+            observed_bins = np.bincount(
+                bins, weights=weights * events, minlength=removed_bins.size
+            )
+            used = removed_bins != 0.0
+            used[0] = True
+            durations = np.flatnonzero(used).astype(np.float64)
+            events = np.ascontiguousarray(observed_bins[used])
+            weights = np.ascontiguousarray(removed_bins[used])
+            aggregated = 1
+    if not aggregated:
+        order = np.argsort(durations, kind="quicksort")
+        durations = np.ascontiguousarray(durations[order])
+        events = np.ascontiguousarray(events[order])
+        weights = np.ascontiguousarray(weights[order])
     size = durations.size
-    arrays = [np.empty(size, dtype=np.float64) for _ in range(11)]
+    arrays = [np.empty(size + 1, dtype=np.float64) for _ in range(11)]
     count = lib().ml_event_table(
         addr(durations),
         addr(events),
         addr(weights),
         size,
+        aggregated,
         *(addr(a) for a in arrays),
     )
-    if count < 1 or count > size:
+    if count < 1 or count > size + 1:
         raise RuntimeError(f"native event scan returned invalid row count {count}")
     (
         times,
@@ -77,7 +96,7 @@ def _event_scan(durations, events, weights) -> _EventScan:
     ) = (a[:count] for a in arrays)
     index = pd.Index(times, name="event_at", copy=False)
     entrance = np.zeros(count)
-    entrance[0] = weights.sum()
+    entrance[0] = at_risk[0]
     table = pd.DataFrame(
         {
             "removed": removed,

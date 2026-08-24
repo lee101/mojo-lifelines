@@ -16,6 +16,7 @@ def ml_event_table(
     events_addr: Int,
     weights_addr: Int,
     n: Int,
+    aggregated: Int,
     times_addr: Int,
     removed_addr: Int,
     observed_addr: Int,
@@ -61,22 +62,40 @@ def ml_event_table(
     var hd_variance = 0.0
     var i = 0
     var row = 0
+    if durations[0] > 0.0:
+        times[0] = 0.0
+        removed[0] = 0.0
+        observed[0] = 0.0
+        censored[0] = 0.0
+        at_risk[0] = remaining
+        survival[0] = s
+        greenwood[0] = g
+        na_smooth[0] = hs
+        na_discrete[0] = hd
+        na_smooth_variance[0] = hs_variance
+        na_discrete_variance[0] = hd_variance
+        row = 1
     while i < n:
         var t = durations[i]
         var r = 0.0
         var d = 0.0
-        var upper = i + 1
-        while upper < n and durations[upper] == t:
-            upper += 1
-        while i + W <= upper:
-            var weight_values = weights.load[width=W](i)
-            r += weight_values.reduce_add()
-            d += (weight_values * events.load[width=W](i)).reduce_add()
-            i += W
-        while i < upper:
-            r += weights[i]
-            d += weights[i] * events[i]
+        if aggregated != 0:
+            r = weights[i]
+            d = events[i]
             i += 1
+        else:
+            var upper = i + 1
+            while upper < n and durations[upper] == t:
+                upper += 1
+            while i + W <= upper:
+                var weight_values = weights.load[width=W](i)
+                r += weight_values.reduce_add()
+                d += (weight_values * events.load[width=W](i)).reduce_add()
+                i += W
+            while i < upper:
+                r += weights[i]
+                d += weights[i] * events[i]
+                i += 1
 
         times[row] = t
         removed[row] = r

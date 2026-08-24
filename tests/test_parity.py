@@ -112,6 +112,23 @@ def test_nelson_aalen_simd_tail(smoothing):
     assert np.allclose(ours.confidence_interval_, theirs.confidence_interval_)
 
 
+def test_dense_integer_event_scan():
+    n = 4097
+    durations = (np.arange(n) * 17 % 53).astype(float)
+    events = np.arange(n) % 3 != 0
+    weights = (np.arange(n) % 4 + 1).astype(float)
+
+    ours_km = mojo.KaplanMeierFitter().fit(durations, events, weights=weights)
+    theirs_km = upstream.KaplanMeierFitter().fit(durations, events, weights=weights)
+    assert np.allclose(ours_km.event_table, theirs_km.event_table)
+    assert np.allclose(ours_km.survival_function_, theirs_km.survival_function_)
+
+    ours_na = mojo.NelsonAalenFitter().fit(durations, events, weights=weights)
+    theirs_na = upstream.NelsonAalenFitter().fit(durations, events, weights=weights)
+    assert np.allclose(ours_na.event_table, theirs_na.event_table)
+    assert np.allclose(ours_na.cumulative_hazard_, theirs_na.cumulative_hazard_)
+
+
 def test_breslow_fleming_harrington(tied_data):
     durations, events = tied_data
     ours = mojo.BreslowFlemingHarringtonFitter().fit(durations, events)

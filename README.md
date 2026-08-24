@@ -73,11 +73,11 @@ Machine: Intel(R) Xeon(R) CPU E5-2697 v4 @ 2.30GHz.
 
 | case | mojo-lifelines | lifelines | result |
 | --- | ---: | ---: | ---: |
-| `KaplanMeierFitter.fit` (500k, tied) | 52.1 ms | 59.5 ms | 1.14x faster |
-| `NelsonAalenFitter.fit` (500k, tied) | 65.6 ms | 122.4 ms | 1.87x faster |
-| `WeibullFitter.fit` (100k) | 40.4 ms | 1086.6 ms | 26.88x faster |
-| `CoxPHFitter.fit` (20k x 8) | 266.0 ms | 2496.0 ms | 9.39x faster |
-| Cox `predict_partial_hazard` (300k x 8) | 25.6 ms | 255.7 ms | 9.98x faster |
+| `KaplanMeierFitter.fit` (500k, tied) | 11.8 ms | 62.4 ms | 5.29x faster |
+| `NelsonAalenFitter.fit` (500k, tied) | 11.2 ms | 73.8 ms | 6.58x faster |
+| `WeibullFitter.fit` (100k) | 33.2 ms | 578.1 ms | 17.39x faster |
+| `CoxPHFitter.fit` (20k x 8) | 200.3 ms | 2131.1 ms | 10.64x faster |
+| Cox `predict_partial_hazard` (300k x 8) | 18.2 ms | 168.1 ms | 9.25x faster |
 
 These are end-to-end estimator calls, including pandas result construction and
 sorting where the API requires it. The Cox fit retains NumPy only for its small
@@ -85,16 +85,23 @@ dense Newton solve; the full risk-set gradient and Hessian are timed on the
 Mojo side. Nelson–Aalen variance is accumulated in the same Mojo pass as its
 hazard, avoiding a Python loop over failures.
 
-No GPU path is provided.
+No GPU path is provided. The targeted event histogram and scan are
+bandwidth-bound at well below two floating-point operations per byte moved,
+so host/device transfers cannot pay off. The scan recurrence is also
+prefix-dependent; parallel thread-launch overhead would dominate after dense
+tied durations have been reduced to their small aggregate table.
 
 ## How it works
 
-`src/lifelines.mojo` is one compilation unit with four C exports. The
-event-table export sorts nowhere and allocates nothing: Python supplies
-duration-sorted contiguous `float64` buffers, and Mojo writes removals,
+`src/lifelines.mojo` is one compilation unit with four C exports. For large,
+dense non-negative integer timelines, NumPy's native histogram reduces tied
+observations directly and Mojo scans only the aggregate rows. Other timelines
+use an unstable comparison sort because group aggregation does not depend on
+the order within ties. The native export allocates nothing and writes removals,
 failures, censoring, at-risk counts, Kaplan–Meier products, Greenwood sums, and
-Nelson–Aalen sums and variances in one pass. Native-width SIMD loads reduce
-weights and observed-event weights, with scalar tails for remainder elements.
+Nelson–Aalen sums and variances in one pass. It also emits the synthetic time
+zero row without copying the inputs. Native-width SIMD loads reduce weights
+and observed-event weights, with scalar tails for remainder elements.
 The Weibull kernel solves the profiled likelihood equation for shape and scale
 and returns the observed-information covariance.
 
